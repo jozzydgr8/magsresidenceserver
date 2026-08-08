@@ -1,5 +1,6 @@
 const Apartment = require('../schema/ApartmentSchema');
 const cloudinary = require('../config/cloudinary');
+const mongoose = require('mongoose');
 
 const getApartment = async (req, res) => {
     try {

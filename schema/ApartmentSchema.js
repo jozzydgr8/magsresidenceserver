@@ -7,11 +7,7 @@ const apartmentSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    featuredImage: {
-      type: String,
-      required: true,
-    },
-  
+
     description: {
       type: String,
       required: true,

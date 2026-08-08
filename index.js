@@ -12,6 +12,7 @@ app.use(cors());
 
 //route middleware
 app.use('/apartment', require('./routes/apartmentRoute'));
+app.use('/user', require('./routes/userRoute'));
 
 
 
