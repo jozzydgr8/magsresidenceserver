@@ -7,6 +7,8 @@ const UserSchema = new Schema({
     email:{
         type:String,
         required:true,
+        lowercase: true,
+        trim: true
     },
     password:{
         type:String,
@@ -21,6 +23,9 @@ UserSchema.statics.createUser = async function({email, password}){
     if(!email || !password){
         throw Error('Fields required')
     }
+
+     email = email.toLowerCase().trim()
+
     if(!validator.isEmail(email)){
         throw Error('invalid email')
     }if(!validator.isStrongPassword(password)){
@@ -45,6 +50,8 @@ UserSchema.statics.signUser = async function ({email, password}){
      if(!email || !password){
         throw Error('Fields required')
     }
+     email = email.toLowerCase().trim()
+
     if(!validator.isEmail(email)){
         throw Error('invalid email')
     }if(!validator.isStrongPassword(password)){
