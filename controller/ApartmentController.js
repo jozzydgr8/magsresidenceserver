@@ -56,7 +56,7 @@ const createApartment = async (req, res) => {
 const updateApartment = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, description, cost } = req.body;
+        const { title, description, cost, capacity } = req.body;
 
           if (!mongoose.Types.ObjectId.isValid(id)) {
             return res.status(404).json({ message: 'Blog not found' });
@@ -75,6 +75,7 @@ const updateApartment = async (req, res) => {
         if (title !== undefined) apartment.title = title;
         if (description !== undefined) apartment.description = description;
         if (cost !== undefined) apartment.cost = cost;
+        if (capacity !== undefined) apartment.capacity = capacity;
 
         // If new images were uploaded
         if (req.files && req.files.length > 0) {
