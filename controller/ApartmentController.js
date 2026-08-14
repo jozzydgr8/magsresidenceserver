@@ -56,42 +56,75 @@ const createApartment = async (req, res) => {
 const updateApartment = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, description, cost, capacity } = req.body;
+        const { title, description, cost, capacity, existingImages } = req.body;
 
-          if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(404).json({ message: 'Blog not found' });
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(404).json({
+                message: "Apartment not found",
+            });
         }
-
 
         const apartment = await Apartment.findById(id);
 
         if (!apartment) {
             return res.status(404).json({
-                message: 'Apartment not found'
+                message: "Apartment not found",
             });
         }
 
-        // Update text fields if they were provided
-        if (title !== undefined) apartment.title = title;
-        if (description !== undefined) apartment.description = description;
-        if (cost !== undefined) apartment.cost = cost;
-        if (capacity !== undefined) apartment.capacity = capacity;
+        // -------------------------
+        // Update text fields
+        // -------------------------
 
-        // If new images were uploaded
-        if (req.files && req.files.length > 0) {
+        if (title !== undefined) {
+            apartment.title = title;
+        }
 
-            const uploadPromises = req.files.map(file =>
-                cloudinary.uploader.upload(file.path)
+        if (description !== undefined) {
+            apartment.description = description;
+        }
+
+        if (cost !== undefined) {
+            apartment.cost = cost;
+        }
+
+        if (capacity !== undefined) {
+            apartment.capacity = capacity;
+        }
+
+        // -------------------------
+        // Update images
+        // -------------------------
+
+        if (existingImages !== undefined) {
+            const keepImageIds = JSON.parse(existingImages);
+
+            // Keep only images that were not deleted
+            const remainingImages = apartment.images.filter((image) =>
+                keepImageIds.includes(image._id.toString())
             );
 
-            const results = await Promise.all(uploadPromises);
+            // Upload new images
+            let newImages = [];
 
-            const images = results.map(result => ({
-                url: result.secure_url,
-                public_id: result.public_id
-            }));
+            if (req.files && req.files.length > 0) {
+                const uploadPromises = req.files.map((file) =>
+                    cloudinary.uploader.upload(file.path)
+                );
 
-            apartment.images = images;
+                const results = await Promise.all(uploadPromises);
+
+                newImages = results.map((result) => ({
+                    url: result.secure_url,
+                    public_id: result.public_id,
+                }));
+            }
+
+            // Final image list
+            apartment.images = [
+                ...remainingImages,
+                ...newImages,
+            ];
         }
 
         const updatedApartment = await apartment.save();
@@ -99,11 +132,11 @@ const updateApartment = async (req, res) => {
         res.status(200).json(updatedApartment);
 
     } catch (error) {
-        console.error('Update apartment error:', error);
+        console.error("Update apartment error:", error);
 
         res.status(500).json({
-            message: 'Failed to update apartment',
-            error: error.message
+            message: "Failed to update apartment",
+            error: error.message,
         });
     }
 };
