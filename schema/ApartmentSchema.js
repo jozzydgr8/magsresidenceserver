@@ -30,6 +30,10 @@ const apartmentSchema = new mongoose.Schema(
       type: Number,
       required:true,
     },
+    capacity:{
+      type: Number,
+      required:true
+    }
    
   },
   {
