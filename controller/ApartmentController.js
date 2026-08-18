@@ -1,16 +1,43 @@
 const Apartment = require('../schema/ApartmentSchema');
+const Booking = require('../schema/bookingSchema');
 const cloudinary = require('../config/cloudinary');
 const mongoose = require('mongoose');
 
-const getApartment = async (req, res) => {
-    try {
-        const fetchApartment = await Apartment.find({});
-        res.status(200).json(fetchApartment);
-    } catch (error) {
-        res.status(400).json({ message: error.message });
-    }
-};
 
+const getApartment = async (req, res) => {
+  try {
+    const apartments = await Apartment.find({}).lean();
+
+    const apartmentIds = apartments.map((apartment) => apartment._id);
+
+    const bookings = await Booking.find({
+      apartment: { $in: apartmentIds },
+      status: 'confirmed',
+      checkOut: { $gte: new Date() }
+    })
+      .select('apartment checkIn checkOut -_id')
+      .lean();
+
+    const result = apartments.map((apartment) => ({
+      ...apartment,
+      bookedDates: bookings
+        .filter(
+          (booking) =>
+            booking.apartment.toString() === apartment._id.toString()
+        )
+        .map((booking) => ({
+          checkIn: booking.checkIn,
+          checkOut: booking.checkOut
+        }))
+    }));
+
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(400).json({
+      message: error.message
+    });
+  }
+};
 
 const createApartment = async (req, res) => {
     try {
