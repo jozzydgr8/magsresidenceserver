@@ -175,16 +175,19 @@ const initializeBookingPayment = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(
-      'Paystack initialization error:',
-      error.response?.data || error.message
-    );
+  console.error(
+    'PAYSTACK INITIALIZATION ERROR:',
+    error.response?.data || error.message
+  );
 
-    return res.status(500).json({
-      status: 'error',
-      message: 'Payment initialization failed',
-    });
-  }
+  return res.status(500).json({
+    status: 'error',
+    message:
+      error.response?.data?.message ||
+      error.message ||
+      'Payment initialization failed',
+  });
+}
 };
 
 const verifyAndAddBooking = async (req, res) => {
