@@ -8,6 +8,12 @@ const bookingSchema = new mongoose.Schema(
       required: true,
     },
 
+    bookingReference:{
+      type:String,
+      required: true,
+      trim: true,
+    },
+
     guest: {
       name: {
         type: String,
