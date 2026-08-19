@@ -5,6 +5,188 @@ const mongoose = require('mongoose');
 const Booking = require('../schema/bookingSchema');
 const Apartment = require('../schema/ApartmentSchema');
 
+const initializeBookingPayment = async (req, res) => {
+  const {
+    apartmentId,
+    checkIn,
+    checkOut,
+    name,
+    email,
+    phone,
+  } = req.body;
+
+  // 1. Validate required fields
+  if (
+    !apartmentId ||
+    !checkIn ||
+    !checkOut ||
+    !name ||
+    !email ||
+    !phone
+  ) {
+    return res.status(400).json({
+      status: 'failed',
+      message: 'All booking information is required',
+    });
+  }
+
+  try {
+    // 2. Find apartment
+    const apartment = await Apartment.findById(apartmentId);
+
+    if (!apartment) {
+      return res.status(404).json({
+        status: 'failed',
+        message: 'Apartment not found',
+      });
+    }
+
+    // 3. Convert dates
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
+
+    // 4. Validate dates
+    if (
+      isNaN(checkInDate.getTime()) ||
+      isNaN(checkOutDate.getTime()) ||
+      checkInDate >= checkOutDate
+    ) {
+      return res.status(400).json({
+        status: 'failed',
+        message: 'Invalid booking dates',
+      });
+    }
+
+    // 5. Check apartment availability
+    const overlappingBooking = await Booking.findOne({
+      apartment: apartmentId,
+
+      status: 'confirmed',
+
+      checkIn: {
+        $lt: checkOutDate,
+      },
+
+      checkOut: {
+        $gt: checkInDate,
+      },
+    });
+
+    if (overlappingBooking) {
+      return res.status(400).json({
+        status: 'failed',
+        message: 'Apartment is already booked for these dates',
+      });
+    }
+
+    // 6. Calculate number of nights
+    const millisecondsPerDay =
+      1000 * 60 * 60 * 24;
+
+    const nights = Math.ceil(
+      (checkOutDate - checkInDate) /
+        millisecondsPerDay
+    );
+
+    // 7. Calculate trusted amount from database
+    const totalAmount = apartment.cost * nights;
+
+    // Paystack expects amount in kobo
+    const amountInKobo = Math.round(totalAmount * 100);
+
+    // 8. Initialize Paystack transaction
+    const response = await axios.post(
+      'https://api.paystack.co/transaction/initialize',
+      {
+        email: email.trim().toLowerCase(),
+
+        amount: amountInKobo,
+
+        currency: 'NGN',
+
+        metadata: {
+          custom_fields: [
+            {
+              display_name: 'Apartment ID',
+              variable_name: 'apartmentId',
+              value: apartment._id.toString(),
+            },
+
+            {
+              display_name: 'Check-in',
+              variable_name: 'checkIn',
+              value: checkInDate.toISOString(),
+            },
+
+            {
+              display_name: 'Check-out',
+              variable_name: 'checkOut',
+              value: checkOutDate.toISOString(),
+            },
+
+            {
+              display_name: 'Guest Name',
+              variable_name: 'name',
+              value: name.trim(),
+            },
+
+            {
+              display_name: 'Guest Phone',
+              variable_name: 'phone',
+              value: phone.trim(),
+            },
+          ],
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.paystacksecretkey}`,
+
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    // 9. Make sure Paystack initialized successfully
+    if (!response.data.status) {
+      return res.status(400).json({
+        status: 'failed',
+        message: 'Unable to initialize payment',
+      });
+    }
+
+    // 10. Return payment information to frontend
+    return res.status(200).json({
+      status: 'success',
+
+      data: {
+        access_code: response.data.data.access_code,
+
+        authorization_url:
+          response.data.data.authorization_url,
+
+        reference:
+          response.data.data.reference,
+
+        amount: totalAmount,
+
+        nights,
+      },
+    });
+
+  } catch (error) {
+    console.error(
+      'Paystack initialization error:',
+      error.response?.data || error.message
+    );
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Payment initialization failed',
+    });
+  }
+};
+
 const verifyAndAddBooking = async (req, res) => {
   const { reference } = req.body;
 
@@ -260,4 +442,5 @@ const getBookings = async (req, res) => {
 module.exports = {
   verifyAndAddBooking,
   getBookings,
+  initializeBookingPayment,
 };
