@@ -194,7 +194,10 @@ const initializeBookingPayment = async (req, res) => {
 const verifyAndAddBooking = async (req, res) => {
   const { reference } = req.body;
 
-  // 1. Make sure Paystack reference was provided
+  // ==========================================
+  // 1. VALIDATE REFERENCE
+  // ==========================================
+
   if (!reference) {
     return res.status(400).json({
       status: 'failed',
@@ -203,7 +206,10 @@ const verifyAndAddBooking = async (req, res) => {
   }
 
   try {
-    // 2. Verify payment with Paystack
+    // ==========================================
+    // 2. VERIFY PAYMENT WITH PAYSTACK
+    // ==========================================
+
     const response = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -215,7 +221,12 @@ const verifyAndAddBooking = async (req, res) => {
 
     const paymentData = response.data.data;
 
-    // 3. Make sure payment was successful
+    console.log('PAYSTACK PAYMENT:', paymentData);
+
+    // ==========================================
+    // 3. MAKE SURE PAYMENT WAS SUCCESSFUL
+    // ==========================================
+
     if (paymentData.status !== 'success') {
       return res.status(400).json({
         status: 'failed',
@@ -223,19 +234,25 @@ const verifyAndAddBooking = async (req, res) => {
       });
     }
 
-    // 4. Check if this payment has already created a booking
-    const existing = await Booking.findOne({
+    // ==========================================
+    // 4. PREVENT DUPLICATE BOOKING
+    // ==========================================
+
+    const existingBooking = await Booking.findOne({
       'payment.reference': paymentData.reference,
     });
 
-    if (existing) {
+    if (existingBooking) {
       return res.status(200).json({
         status: 'already verified',
-        data: existing,
+        data: existingBooking,
       });
     }
 
-    // 5. Helper to get Paystack metadata
+    // ==========================================
+    // 5. GET PAYSTACK METADATA
+    // ==========================================
+
     const getMetadata = (key) => {
       return (
         paymentData.metadata?.custom_fields?.find(
@@ -244,15 +261,21 @@ const verifyAndAddBooking = async (req, res) => {
       );
     };
 
-    // 6. Get booking information from metadata
     const apartmentId = getMetadata('apartmentId');
-    const checkIn = new Date(getMetadata('checkIn'));
-    const checkOut = new Date(getMetadata('checkOut'));
+
+    const checkInValue = getMetadata('checkIn');
+    const checkOutValue = getMetadata('checkOut');
+
+    const checkIn = new Date(checkInValue);
+    const checkOut = new Date(checkOutValue);
 
     const name = getMetadata('name');
     const phone = getMetadata('phone');
 
-    // 7. Validate apartment ID
+    // ==========================================
+    // 6. VALIDATE APARTMENT
+    // ==========================================
+
     if (!apartmentId) {
       return res.status(400).json({
         status: 'failed',
@@ -260,7 +283,10 @@ const verifyAndAddBooking = async (req, res) => {
       });
     }
 
-    // 8. Validate customer information
+    // ==========================================
+    // 7. GET CUSTOMER EMAIL FROM PAYSTACK
+    // ==========================================
+
     const email = paymentData.customer?.email;
 
     if (!email) {
@@ -270,6 +296,10 @@ const verifyAndAddBooking = async (req, res) => {
       });
     }
 
+    // ==========================================
+    // 8. VALIDATE CUSTOMER INFORMATION
+    // ==========================================
+
     if (!name || !phone) {
       return res.status(400).json({
         status: 'failed',
@@ -277,7 +307,10 @@ const verifyAndAddBooking = async (req, res) => {
       });
     }
 
-    // 9. Validate booking dates
+    // ==========================================
+    // 9. VALIDATE DATES
+    // ==========================================
+
     if (
       isNaN(checkIn.getTime()) ||
       isNaN(checkOut.getTime()) ||
@@ -289,249 +322,390 @@ const verifyAndAddBooking = async (req, res) => {
       });
     }
 
-    // 10. Start MongoDB transaction
-    
-// ------------------------------------------
-// RETURN SUCCESS
-// ------------------------------------------
+    // ==========================================
+    // 10. START MONGODB TRANSACTION
+    // ==========================================
 
-     
-const session = await mongoose.startSession();
+    const session = await mongoose.startSession();
 
-try {
-  let booking;
-  let apartment;
+    let booking;
+    let apartment;
+    let paidAmount;
 
-  await session.withTransaction(async () => {
+    try {
+      await session.withTransaction(async () => {
 
-    // Find apartment
-    apartment = await Apartment.findById(apartmentId)
-      .session(session);
+        // ======================================
+        // FIND APARTMENT
+        // ======================================
 
-    if (!apartment) {
-      throw new Error('Apartment not found');
+        apartment = await Apartment.findById(
+          apartmentId
+        ).session(session);
+
+        if (!apartment) {
+          throw new Error('Apartment not found');
+        }
+
+        // ======================================
+        // CHECK AVAILABILITY
+        // ======================================
+
+        const overlappingBooking =
+          await Booking.findOne({
+            apartment: apartmentId,
+
+            status: {
+              $in: [
+                'confirmed',
+                'checked-in',
+              ],
+            },
+
+            checkIn: {
+              $lt: checkOut,
+            },
+
+            checkOut: {
+              $gt: checkIn,
+            },
+
+          }).session(session);
+
+        if (overlappingBooking) {
+          throw new Error(
+            'Apartment is already booked for these dates'
+          );
+        }
+
+        // ======================================
+        // CALCULATE NIGHTS
+        // ======================================
+
+        const millisecondsPerDay =
+          1000 * 60 * 60 * 24;
+
+        const nights = Math.ceil(
+          (checkOut - checkIn) /
+            millisecondsPerDay
+        );
+
+        if (nights <= 0) {
+          throw new Error(
+            'Invalid number of nights'
+          );
+        }
+
+        // ======================================
+        // CALCULATE EXPECTED AMOUNT
+        // ======================================
+
+        const expectedAmount =
+          apartment.cost * nights;
+
+        // ======================================
+        // PAYSTACK AMOUNT IS KOBO
+        // ======================================
+
+        paidAmount =
+          paymentData.amount / 100;
+
+        // ======================================
+        // VERIFY PAYMENT AMOUNT
+        // ======================================
+
+        if (paidAmount !== expectedAmount) {
+          throw new Error(
+            `Payment amount does not match booking amount. Expected ₦${expectedAmount}, received ₦${paidAmount}`
+          );
+        }
+
+        // ======================================
+        // GENERATE BOOKING REFERENCE
+        // ======================================
+
+        const bookingReference =
+          `BK-${crypto
+            .randomBytes(4)
+            .toString('hex')
+            .toUpperCase()}`;
+
+        // ======================================
+        // CREATE BOOKING
+        // ======================================
+
+        const createdBookings =
+          await Booking.create(
+            [
+              {
+                bookingReference,
+
+                apartment: apartmentId,
+
+                guest: {
+                  name: name.trim(),
+
+                  email: email
+                    .trim()
+                    .toLowerCase(),
+
+                  phone: phone.trim(),
+                },
+
+                checkIn,
+
+                checkOut,
+
+                totalAmount: paidAmount,
+
+                payment: {
+                  reference:
+                    paymentData.reference,
+
+                  status: 'paid',
+                },
+
+                status: 'confirmed',
+              },
+            ],
+            {
+              session,
+            }
+          );
+
+        booking = createdBookings[0];
+
+        console.log(
+          'BOOKING CREATED:',
+          booking._id
+        );
+      });
+
+    } finally {
+      await session.endSession();
     }
 
-    // Check if apartment is already booked
-    const overlappingBooking = await Booking.findOne({
-      apartment: apartmentId,
-      status: 'confirmed',
+    // ==========================================
+    // TRANSACTION HAS COMMITTED
+    // ==========================================
 
-      checkIn: {
-        $lt: checkOut,
-      },
-
-      checkOut: {
-        $gt: checkIn,
-      },
-    }).session(session);
-
-    if (overlappingBooking) {
-      throw new Error(
-        'Apartment is already booked for these dates'
-      );
-    }
-
-    // Calculate nights
-    const millisecondsPerDay =
-      1000 * 60 * 60 * 24;
-
-    const nights = Math.ceil(
-      (checkOut - checkIn) / millisecondsPerDay
+    console.log(
+      '======================================'
     );
 
-    // Calculate expected payment from database
-    const expectedAmount =
-      apartment.cost * nights;
-
-    // Paystack amount is in kobo
-    const paidAmount =
-      paymentData.amount / 100;
-
-    // Verify payment amount
-    if (paidAmount !== expectedAmount) {
-      throw new Error(
-        'Payment amount does not match booking amount'
-      );
-    }
-
-    // Generate booking reference
-    const bookingReference =
-      `BK-${crypto
-        .randomBytes(4)
-        .toString('hex')
-        .toUpperCase()}`;
-
-    // Create booking
-    const createdBooking = await Booking.create(
-      [
-        {
-          bookingReference,
-
-          apartment: apartmentId,
-
-          guest: {
-            name: name.trim(),
-
-            email: email
-              .toLowerCase()
-              .trim(),
-
-            phone: phone.trim(),
-          },
-
-          checkIn,
-          checkOut,
-
-          totalAmount: paidAmount,
-
-          payment: {
-            reference: paymentData.reference,
-            status: 'paid',
-          },
-
-          status: 'confirmed',
-        },
-      ],
-      {
-        session,
-      }
+    console.log(
+      'BOOKING SUCCESSFULLY CREATED'
     );
 
-    booking = createdBooking[0];
-  });
+    console.log(
+      'Booking Reference:',
+      booking.bookingReference
+    );
 
-  // ==========================================
-  // TRANSACTION SUCCESSFULLY COMMITTED
-  // ==========================================
+    console.log(
+      'Guest Email:',
+      booking.guest.email
+    );
 
-  try {
-    await sendEmail({
-      recipient_email: booking.guest.email,
+    console.log(
+      'Apartment:',
+      apartment.title
+    );
 
-      subject:
-        `Booking Confirmation - ${booking.bookingReference}`,
+    console.log(
+      'Amount:',
+      paidAmount
+    );
 
-      message: `
-        <div style="
-          font-family: Arial, sans-serif;
-          line-height: 1.6;
-          color: #333;
-          max-width: 600px;
-          margin: auto;
-        ">
+    console.log(
+      '======================================'
+    );
 
-          <h2 style="color: #b08d57;">
-            Booking Confirmed
-          </h2>
+    // ==========================================
+    // SEND CONFIRMATION EMAIL
+    // ==========================================
 
-          <p>
-            Dear ${booking.guest.name},
-          </p>
+    try {
 
-          <p>
-            Thank you for your booking.
-            Your payment has been successfully received
-            and your reservation is confirmed.
-          </p>
+      console.log(
+        'SENDING BOOKING CONFIRMATION EMAIL...'
+      );
 
+      const emailResult = await sendEmail({
+        recipient_email:
+          booking.guest.email,
+
+        subject:
+          `Booking Confirmation - ${booking.bookingReference}`,
+
+        message: `
           <div style="
-            background: #f7f7f7;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: auto;
           ">
 
+            <h2 style="
+              color: #b08d57;
+              margin-bottom: 20px;
+            ">
+              Booking Confirmed
+            </h2>
+
             <p>
-              <strong>Booking Reference:</strong><br>
+              Dear ${booking.guest.name},
+            </p>
+
+            <p>
+              Thank you for your booking.
+              Your payment has been successfully received
+              and your reservation is confirmed.
+            </p>
+
+            <div style="
+              background: #f7f7f7;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            ">
+
+              <p>
+                <strong>
+                  Booking Reference:
+                </strong>
+                <br>
+                ${booking.bookingReference}
+              </p>
+
+              <p>
+                <strong>
+                  Apartment:
+                </strong>
+                <br>
+                ${apartment.title}
+              </p>
+
+              <p>
+                <strong>
+                  Check-in:
+                </strong>
+                <br>
+                ${checkIn.toLocaleDateString()}
+              </p>
+
+              <p>
+                <strong>
+                  Check-out:
+                </strong>
+                <br>
+                ${checkOut.toLocaleDateString()}
+              </p>
+
+              <p>
+                <strong>
+                  Total Amount:
+                </strong>
+                <br>
+                ₦${paidAmount.toLocaleString()}
+              </p>
+
+            </div>
+
+            <p>
+              Please keep your booking reference
+              for your records.
+            </p>
+
+            <h3 style="
+              color: #b08d57;
+              letter-spacing: 1px;
+            ">
               ${booking.bookingReference}
+            </h3>
+
+            <p>
+              We look forward to welcoming you.
             </p>
 
             <p>
-              <strong>Apartment:</strong><br>
-              ${apartment.title}
-            </p>
-
-            <p>
-              <strong>Check-in:</strong><br>
-              ${checkIn.toLocaleDateString()}
-            </p>
-
-            <p>
-              <strong>Check-out:</strong><br>
-              ${checkOut.toLocaleDateString()}
-            </p>
-
-            <p>
-              <strong>Total Amount:</strong><br>
-              ₦${paidAmount.toLocaleString()}
+              Kind regards,<br>
+              <strong>
+                Mags Residences
+              </strong>
             </p>
 
           </div>
+        `,
+      });
 
-          <p>
-            Please keep your booking reference for your records:
-          </p>
+      console.log(
+        'BOOKING CONFIRMATION EMAIL SENT SUCCESSFULLY'
+      );
 
-          <h3 style="color: #b08d57;">
-            ${booking.bookingReference}
-          </h3>
+      console.log(
+        'Email Result:',
+        emailResult
+      );
 
-          <p>
-            We look forward to welcoming you.
-          </p>
+    } catch (emailError) {
 
-          <p>
-            Kind regards,<br>
-            Mags Residences
-          </p>
+      // ========================================
+      // EMAIL FAILED
+      // ========================================
 
-        </div>
-      `,
+      console.error(
+        '======================================'
+      );
+
+      console.error(
+        'BOOKING CONFIRMATION EMAIL FAILED'
+      );
+
+      console.error(
+        emailError
+      );
+
+      console.error(
+        '======================================'
+      );
+
+      // IMPORTANT:
+      // Booking has already been created.
+      // We do NOT cancel the booking because
+      // email failed.
+    }
+
+    // ==========================================
+    // RETURN SUCCESS
+    // ==========================================
+
+    return res.status(201).json({
+      status: 'success',
+
+      message:
+        'Payment verified and booking created successfully',
+
+      data: booking,
     });
-
-    console.log(
-      `Confirmation email sent to ${booking.guest.email}`
-    );
-
-  } catch (emailError) {
-
-    // Booking is already saved.
-    // Email failure should NOT cancel the booking.
-    console.error(
-      'BOOKING CONFIRMATION EMAIL FAILED:',
-      emailError
-    );
-  }
-
-  // ==========================================
-  // RETURN SUCCESS
-  // ==========================================
-
-  return res.status(201).json({
-    status: 'success',
-    data: booking,
-  });
-
-} catch (error) {
-
-  return res.status(400).json({
-    status: 'failed',
-    message: error.message,
-  });
-
-} finally {
-
-  await session.endSession();
-}
 
   } catch (error) {
 
-    console.error(error);
+    console.error(
+      'VERIFY BOOKING ERROR:',
+      error.response?.data ||
+      error.message ||
+      error
+    );
 
     return res.status(500).json({
       status: 'error',
-      message: 'Verification failed',
+
+      message:
+        error.response?.data?.message ||
+        error.message ||
+        'Verification failed',
     });
   }
 };
