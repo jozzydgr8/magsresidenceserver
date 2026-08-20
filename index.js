@@ -14,7 +14,7 @@ app.use(cors());
 app.use('/apartment', require('./routes/apartmentRoute'));
 app.use('/user', require('./routes/userRoute'));
 app.use('/bookings', require('./routes/bookingRoute'));
-
+app.use('/message', require('./routes/emailRoute'));
 
 
 
