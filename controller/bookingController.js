@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 
 const Booking = require('../schema/bookingSchema');
 const Apartment = require('../schema/ApartmentSchema');
-const sendEMail = require('../config/mailer');
+const sendEmail = require('../config/mailer');
 
 const initializeBookingPayment = async (req, res) => {
   const {
@@ -406,7 +406,7 @@ try {
   // ==========================================
 
   try {
-    await sendMail({
+    await sendEmail({
       recipient_email: booking.guest.email,
 
       subject:
@@ -560,8 +560,284 @@ const getBookings = async (req, res) => {
 };
 
 
+// CHECK IN GUEST
+const checkInBooking = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const booking = await Booking.findById(id).populate(
+      'apartment',
+      'title'
+    );
+
+    if (!booking) {
+      return res.status(404).json({
+        status: 'failed',
+        message: 'Booking not found',
+      });
+    }
+
+    // Guest can only check in if booking is confirmed
+    if (booking.status !== 'confirmed') {
+      return res.status(400).json({
+        status: 'failed',
+        message: `Booking cannot be checked in because its current status is ${booking.status}`,
+      });
+    }
+
+    // Update booking
+    booking.status = 'checked-in';
+    booking.checkedInAt = new Date();
+
+    await booking.save();
+
+    // ==========================================
+    // SEND CHECK-IN EMAIL
+    // ==========================================
+
+    try {
+      await sendMail({
+        recipient_email: booking.guest.email,
+
+        subject: `Welcome to Mags Residences - ${booking.bookingReference}`,
+
+        message: `
+          <div style="
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: auto;
+          ">
+
+            <h2 style="color: #b08d57;">
+              Welcome to Mags Residences
+            </h2>
+
+            <p>
+              Dear ${booking.guest.name},
+            </p>
+
+            <p>
+              Welcome! You have successfully checked in
+              and your stay has now begun.
+            </p>
+
+            <div style="
+              background: #f7f7f7;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            ">
+
+              <p>
+                <strong>Booking Reference:</strong><br>
+                ${booking.bookingReference}
+              </p>
+
+              <p>
+                <strong>Apartment:</strong><br>
+                ${booking.apartment.title}
+              </p>
+
+              <p>
+                <strong>Check-in:</strong><br>
+                ${booking.checkIn.toLocaleDateString()}
+              </p>
+
+              <p>
+                <strong>Check-out:</strong><br>
+                ${booking.checkOut.toLocaleDateString()}
+              </p>
+
+            </div>
+
+            <p>
+              We hope you have a wonderful and comfortable stay.
+            </p>
+
+            <p>
+              Kind regards,<br>
+              Mags Residences
+            </p>
+
+          </div>
+        `,
+      });
+
+      console.log(
+        `Check-in email sent to ${booking.guest.email}`
+      );
+
+    } catch (emailError) {
+
+      // Guest is already checked in.
+      // Email failure should NOT undo the check-in.
+      console.error(
+        'CHECK-IN EMAIL FAILED:',
+        emailError
+      );
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Guest checked in successfully',
+      data: booking,
+    });
+
+  } catch (error) {
+    console.error('CHECK-IN ERROR:', error);
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Unable to check in guest',
+    });
+  }
+};
+
+
+// CHECK OUT GUEST
+const checkOutBooking = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const booking = await Booking.findById(id).populate(
+      'apartment',
+      'title'
+    );
+
+    if (!booking) {
+      return res.status(404).json({
+        status: 'failed',
+        message: 'Booking not found',
+      });
+    }
+
+    // Guest must have checked in first
+    if (booking.status !== 'checked-in') {
+      return res.status(400).json({
+        status: 'failed',
+        message: `Booking cannot be checked out because its current status is ${booking.status}`,
+      });
+    }
+
+    // Update booking
+    booking.status = 'completed';
+    booking.checkedOutAt = new Date();
+
+    await booking.save();
+
+    // ==========================================
+    // SEND CHECK-OUT EMAIL
+    // ==========================================
+
+    try {
+      await sendMail({
+        recipient_email: booking.guest.email,
+
+        subject: `Thank You for Staying With Us - ${booking.bookingReference}`,
+
+        message: `
+          <div style="
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: auto;
+          ">
+
+            <h2 style="color: #b08d57;">
+              Thank You for Staying With Us
+            </h2>
+
+            <p>
+              Dear ${booking.guest.name},
+            </p>
+
+            <p>
+              Your stay at Mags Residences has now been
+              completed successfully.
+            </p>
+
+            <div style="
+              background: #f7f7f7;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            ">
+
+              <p>
+                <strong>Booking Reference:</strong><br>
+                ${booking.bookingReference}
+              </p>
+
+              <p>
+                <strong>Apartment:</strong><br>
+                ${booking.apartment.title}
+              </p>
+
+              <p>
+                <strong>Check-in:</strong><br>
+                ${booking.checkIn.toLocaleDateString()}
+              </p>
+
+              <p>
+                <strong>Check-out:</strong><br>
+                ${booking.checkOut.toLocaleDateString()}
+              </p>
+
+            </div>
+
+            <p>
+              Thank you for choosing Mags Residences.
+              We hope to welcome you again in the future.
+            </p>
+
+            <p>
+              Kind regards,<br>
+              Mags Residences
+            </p>
+
+          </div>
+        `,
+      });
+
+      console.log(
+        `Check-out email sent to ${booking.guest.email}`
+      );
+
+    } catch (emailError) {
+
+      // Booking is already completed.
+      // Email failure should NOT undo the checkout.
+      console.error(
+        'CHECK-OUT EMAIL FAILED:',
+        emailError
+      );
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Guest checked out successfully',
+      data: booking,
+    });
+
+  } catch (error) {
+    console.error('CHECK-OUT ERROR:', error);
+
+    return res.status(500).json({
+      status: 'error',
+      message: 'Unable to check out guest',
+    });
+  }
+};
+
+
+
 module.exports = {
   verifyAndAddBooking,
   getBookings,
   initializeBookingPayment,
+  checkInBooking,
+  checkOutBooking
 };

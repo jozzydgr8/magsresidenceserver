@@ -43,6 +43,14 @@ const bookingSchema = new mongoose.Schema(
       required: true,
     },
 
+    checkedInAt:{
+      type: Date,
+      
+    },
+    checkedOutAt:{
+      type: Date
+    },
+
     
 
     totalAmount: {
@@ -65,7 +73,7 @@ const bookingSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ['confirmed', 'cancelled', 'completed'],
+      enum: ['confirmed', 'cancelled', 'completed','checked-in'],
       default: 'confirmed',
     },
   },
