@@ -596,7 +596,7 @@ const checkInBooking = async (req, res) => {
     // ==========================================
 
     try {
-      await sendMail({
+      await sendEmail({
         recipient_email: booking.guest.email,
 
         subject: `Welcome to Mags Residences - ${booking.bookingReference}`,
@@ -732,7 +732,7 @@ const checkOutBooking = async (req, res) => {
     // ==========================================
 
     try {
-      await sendMail({
+      await sendEmail({
         recipient_email: booking.guest.email,
 
         subject: `Thank You for Staying With Us - ${booking.bookingReference}`,
