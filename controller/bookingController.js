@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 
 const Booking = require('../schema/bookingSchema');
 const Apartment = require('../schema/ApartmentSchema');
+const sendEMail = require('../config/mailer');
 
 const initializeBookingPayment = async (req, res) => {
   const {
@@ -289,123 +290,240 @@ const verifyAndAddBooking = async (req, res) => {
     }
 
     // 10. Start MongoDB transaction
-    const session = await mongoose.startSession();
+    
+// ------------------------------------------
+// RETURN SUCCESS
+// ------------------------------------------
 
-    try {
-      let booking;
+     
+const session = await mongoose.startSession();
 
-      await session.withTransaction(async () => {
+try {
+  let booking;
+  let apartment;
 
-        // 11. Find apartment
-        const apartment = await Apartment.findById(apartmentId).session(
-          session
-        );
+  await session.withTransaction(async () => {
 
-        if (!apartment) {
-          throw new Error('Apartment not found');
-        }
+    // Find apartment
+    apartment = await Apartment.findById(apartmentId)
+      .session(session);
 
-        // 12. Check if apartment is already booked
-        const overlappingBooking = await Booking.findOne({
-          apartment: apartmentId,
-          status: 'confirmed',
-
-          checkIn: {
-            $lt: checkOut,
-          },
-
-          checkOut: {
-            $gt: checkIn,
-          },
-        }).session(session);
-
-        if (overlappingBooking) {
-          throw new Error(
-            'Apartment is already booked for these dates'
-          );
-        }
-
-        // 13. Calculate number of nights
-        const millisecondsPerDay = 1000 * 60 * 60 * 24;
-
-        const nights = Math.ceil(
-          (checkOut - checkIn) / millisecondsPerDay
-        );
-
-        // 14. Calculate expected payment
-        const expectedAmount = apartment.cost * nights;
-
-        // Paystack amount is stored in kobo
-        const paidAmount = paymentData.amount / 100;
-
-        // 15. Make sure customer paid the correct amount
-        if (paidAmount !== expectedAmount) {
-          throw new Error(
-            'Payment amount does not match booking amount'
-          );
-        }
-
-        // 16. Generate booking reference
-        const bookingReference = `BK-${crypto
-          .randomBytes(4)
-          .toString('hex')
-          .toUpperCase()}`;
-
-        // 17. Create booking
-        const createdBooking = await Booking.create(
-          [
-            {
-              bookingReference,
-
-              apartment: apartmentId,
-
-              guest: {
-                name: name.trim(),
-
-                email: email
-                  .toLowerCase()
-                  .trim(),
-
-                phone: phone.trim(),
-              },
-
-              checkIn,
-              checkOut,
-
-              totalAmount: paidAmount,
-
-              payment: {
-                reference: paymentData.reference,
-                status: 'paid',
-              },
-
-              status: 'confirmed',
-            },
-          ],
-          {
-            session,
-          }
-        );
-
-        booking = createdBooking[0];
-      });
-
-      // 18. Return successful booking
-      return res.status(201).json({
-        status: 'success',
-        data: booking,
-      });
-
-    } catch (error) {
-
-      return res.status(400).json({
-        status: 'failed',
-        message: error.message,
-      });
-
-    } finally {
-      await session.endSession();
+    if (!apartment) {
+      throw new Error('Apartment not found');
     }
+
+    // Check if apartment is already booked
+    const overlappingBooking = await Booking.findOne({
+      apartment: apartmentId,
+      status: 'confirmed',
+
+      checkIn: {
+        $lt: checkOut,
+      },
+
+      checkOut: {
+        $gt: checkIn,
+      },
+    }).session(session);
+
+    if (overlappingBooking) {
+      throw new Error(
+        'Apartment is already booked for these dates'
+      );
+    }
+
+    // Calculate nights
+    const millisecondsPerDay =
+      1000 * 60 * 60 * 24;
+
+    const nights = Math.ceil(
+      (checkOut - checkIn) / millisecondsPerDay
+    );
+
+    // Calculate expected payment from database
+    const expectedAmount =
+      apartment.cost * nights;
+
+    // Paystack amount is in kobo
+    const paidAmount =
+      paymentData.amount / 100;
+
+    // Verify payment amount
+    if (paidAmount !== expectedAmount) {
+      throw new Error(
+        'Payment amount does not match booking amount'
+      );
+    }
+
+    // Generate booking reference
+    const bookingReference =
+      `BK-${crypto
+        .randomBytes(4)
+        .toString('hex')
+        .toUpperCase()}`;
+
+    // Create booking
+    const createdBooking = await Booking.create(
+      [
+        {
+          bookingReference,
+
+          apartment: apartmentId,
+
+          guest: {
+            name: name.trim(),
+
+            email: email
+              .toLowerCase()
+              .trim(),
+
+            phone: phone.trim(),
+          },
+
+          checkIn,
+          checkOut,
+
+          totalAmount: paidAmount,
+
+          payment: {
+            reference: paymentData.reference,
+            status: 'paid',
+          },
+
+          status: 'confirmed',
+        },
+      ],
+      {
+        session,
+      }
+    );
+
+    booking = createdBooking[0];
+  });
+
+  // ==========================================
+  // TRANSACTION SUCCESSFULLY COMMITTED
+  // ==========================================
+
+  try {
+    await sendMail({
+      recipient_email: booking.guest.email,
+
+      subject:
+        `Booking Confirmation - ${booking.bookingReference}`,
+
+      message: `
+        <div style="
+          font-family: Arial, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          max-width: 600px;
+          margin: auto;
+        ">
+
+          <h2 style="color: #b08d57;">
+            Booking Confirmed
+          </h2>
+
+          <p>
+            Dear ${booking.guest.name},
+          </p>
+
+          <p>
+            Thank you for your booking.
+            Your payment has been successfully received
+            and your reservation is confirmed.
+          </p>
+
+          <div style="
+            background: #f7f7f7;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+          ">
+
+            <p>
+              <strong>Booking Reference:</strong><br>
+              ${booking.bookingReference}
+            </p>
+
+            <p>
+              <strong>Apartment:</strong><br>
+              ${apartment.title}
+            </p>
+
+            <p>
+              <strong>Check-in:</strong><br>
+              ${checkIn.toLocaleDateString()}
+            </p>
+
+            <p>
+              <strong>Check-out:</strong><br>
+              ${checkOut.toLocaleDateString()}
+            </p>
+
+            <p>
+              <strong>Total Amount:</strong><br>
+              ₦${paidAmount.toLocaleString()}
+            </p>
+
+          </div>
+
+          <p>
+            Please keep your booking reference for your records:
+          </p>
+
+          <h3 style="color: #b08d57;">
+            ${booking.bookingReference}
+          </h3>
+
+          <p>
+            We look forward to welcoming you.
+          </p>
+
+          <p>
+            Kind regards,<br>
+            Mags Residences
+          </p>
+
+        </div>
+      `,
+    });
+
+    console.log(
+      `Confirmation email sent to ${booking.guest.email}`
+    );
+
+  } catch (emailError) {
+
+    // Booking is already saved.
+    // Email failure should NOT cancel the booking.
+    console.error(
+      'BOOKING CONFIRMATION EMAIL FAILED:',
+      emailError
+    );
+  }
+
+  // ==========================================
+  // RETURN SUCCESS
+  // ==========================================
+
+  return res.status(201).json({
+    status: 'success',
+    data: booking,
+  });
+
+} catch (error) {
+
+  return res.status(400).json({
+    status: 'failed',
+    message: error.message,
+  });
+
+} finally {
+
+  await session.endSession();
+}
 
   } catch (error) {
 

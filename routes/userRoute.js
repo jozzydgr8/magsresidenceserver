@@ -1,17 +1,15 @@
-const { signUser, addUser } = require('../controller/userController');
+const { signUser, addUser, getUsers, forgotAndResetPassword, 
+    updateAfterResetPassword } = require('../controller/userController');
 const User = require('../schema/userSchema');
 const router = require('express').Router();
 const authenticator = require('../middleware/authenticator')
 
-router.post('/createuser',addUser);
+router.post('/createuser',authenticator, addUser);
 router.post('/signuser', signUser);
-router.delete('/:id', authenticator, async(req,res)=>{
-    try{
-        const {id} = req.params;
-        const user = await User.findOneAndDelete({_id:id});
-        res.status(200).json(user)
-    }catch(error){
-        res.status(400).json({error:error})
-    }
-})
+//route to send reset for password
+router.post('/forgot-password',forgotAndResetPassword );
+
+
+//route to reset password after forgetting
+router.post('/reset-password',updateAfterResetPassword );
 module.exports=router;
