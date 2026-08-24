@@ -41,7 +41,7 @@ const getApartment = async (req, res) => {
 
 const createApartment = async (req, res) => {
     try {
-        const { title, description, cost } = req.body;
+        const { title, description, cost, capacity } = req.body;
 
         if (!req.files || req.files.length === 0) {
             return res.status(400).json({
@@ -64,6 +64,7 @@ const createApartment = async (req, res) => {
             title,
             description,
             cost,
+            capacity,
             images
         });
 
@@ -78,6 +79,7 @@ const createApartment = async (req, res) => {
         });
     }
 };
+
 
 
 const updateApartment = async (req, res) => {
