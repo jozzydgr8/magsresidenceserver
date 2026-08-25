@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const getGallery = async (req,res )=>{
     try{
         const fetchGallery = await Gallery.find({});
-        res.status(200).json({fetchGallery});
+        res.status(200).json(fetchGallery);
     }catch(error){
         res.status(400).json({message: error.message})
     }
