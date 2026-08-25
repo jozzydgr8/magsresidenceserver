@@ -15,8 +15,7 @@ app.use('/apartment', require('./routes/apartmentRoute'));
 app.use('/user', require('./routes/userRoute'));
 app.use('/bookings', require('./routes/bookingRoute'));
 app.use('/message', require('./routes/emailRoute'));
-
-
+app.use('/gallery', require('./routes/galleryRoute'));
 
 //connect to database
 mongoose.connect(process.env.mongoose_uri)
