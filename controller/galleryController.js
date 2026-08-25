@@ -17,7 +17,7 @@ const createGallery = async(req,res)=>{
     }
 
     const result = await cloudinary.uploader.upload(req.file.path);
-    if(!result || result.public_id){
+    if(!result || !result.public_id){
         return res.status(500).json({message:'cloudinary upload failed to yield public_id'});
 
     }
