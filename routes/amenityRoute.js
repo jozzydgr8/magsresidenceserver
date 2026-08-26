@@ -5,7 +5,7 @@ const authenticator = require('../middleware/authenticator');
 
 router.get('/', getAmenities);
 router.post('/',authenticator, multerUpload.array('images',3), createAmenity);
-router.patch('/', authenticator, multerUpload.array('images',3), updateAmenity);
-router.delete('/', authenticator,multerUpload.array('images',3),deleteAmenity);
+router.patch('/:id', authenticator, multerUpload.array('images',3), updateAmenity);
+router.delete('/:id', authenticator,deleteAmenity);
 
 module.exports = router
