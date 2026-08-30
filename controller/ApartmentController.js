@@ -1,4 +1,5 @@
 const Apartment = require('../schema/ApartmentSchema');
+const Availability = require('../schema/availabilityBlock');
 const Booking = require('../schema/bookingSchema');
 const cloudinary = require('../config/cloudinary');
 const mongoose = require('mongoose');
@@ -10,34 +11,71 @@ const getApartment = async (req, res) => {
 
     const apartmentIds = apartments.map((apartment) => apartment._id);
 
+    const today = new Date();
+
+    // Get active bookings
     const bookings = await Booking.find({
       apartment: { $in: apartmentIds },
-      status: 'confirmed',
-      checkOut: { $gte: new Date() }
+      status: { $in: ['confirmed', 'checked-in'] },
+      checkOut: { $gte: today },
     })
       .select('apartment checkIn checkOut -_id')
       .lean();
 
-    const result = apartments.map((apartment) => ({
-      ...apartment,
-      bookedDates: bookings
+    // Get manual availability blocks
+    const availabilityBlocks = await Availability.find({
+      apartment: { $in: apartmentIds },
+      checkOut: { $gte: today },
+    })
+      .select('apartment checkIn checkOut -_id')
+      .lean();
+
+    const result = apartments.map((apartment) => {
+      const apartmentBookings = bookings
         .filter(
           (booking) =>
             booking.apartment.toString() === apartment._id.toString()
         )
         .map((booking) => ({
           checkIn: booking.checkIn,
-          checkOut: booking.checkOut
-        }))
-    }));
+          checkOut: booking.checkOut,
+        }));
+
+      const apartmentBlocks = availabilityBlocks
+        .filter(
+          (block) =>
+            block.apartment.toString() === apartment._id.toString()
+        )
+        .map((block) => ({
+          checkIn: block.checkIn,
+          checkOut: block.checkOut,
+        }));
+
+      return {
+        ...apartment,
+
+        // Actual guest bookings
+        bookedDates: apartmentBookings,
+
+        // Both bookings and manual blocks
+        unavailableDates: [
+          ...apartmentBookings,
+          ...apartmentBlocks,
+        ],
+      };
+    });
 
     res.status(200).json(result);
   } catch (error) {
-    res.status(400).json({
-      message: error.message
+    console.error('Get apartments error:', error);
+
+    res.status(500).json({
+      message: 'Failed to get apartments',
+      error: error.message,
     });
   }
 };
+
 
 const createApartment = async (req, res) => {
     try {

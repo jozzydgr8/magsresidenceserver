@@ -17,6 +17,7 @@ app.use('/bookings', require('./routes/bookingRoute'));
 app.use('/message', require('./routes/emailRoute'));
 app.use('/gallery', require('./routes/galleryRoute'));
 app.use('/amenity',require('./routes/amenityRoute'));
+app.use('/availability', require('./routes/availabilityRoute'));
 
 //connect to database
 mongoose.connect(process.env.mongoose_uri)
