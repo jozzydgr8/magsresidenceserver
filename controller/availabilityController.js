@@ -115,8 +115,8 @@ const getAvailabilityBlocks = async (req, res) => {
       .populate('apartment')
       .sort({ checkIn: 1 });
 
-    return res.status(200).json({
-      availability,
+    return res.status(200).json(
+      availability
     );
   } catch (error) {
     return res.status(500).json({
