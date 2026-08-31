@@ -7,7 +7,7 @@ const {
 const router = require('express').Router();
 const Authenticator = require('../middleware/authenticator');
 
-router.get('/', getAvailabilityBlocks);
+router.get('/',Authenticator, getAvailabilityBlocks);
 router.patch('/:id', Authenticator, updateAvailabilityBlock);
 router.post('/', Authenticator, createAvailabilityBlock);
 router.delete('/:id', Authenticator, deleteAvailabilityBlock)
